@@ -128,6 +128,7 @@ def main(args):
                 optimizer.zero_grad()
 
             epoch_loss += loss.item() * args.gradient_accumulation_steps
+            # print(loss.item())
             progress_bar.set_postfix(
                 {"loss": loss.item() * args.gradient_accumulation_steps}
             )
