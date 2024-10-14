@@ -10,10 +10,11 @@ LEARNING_RATE=5e-5
 EPOCHS=3
 MAX_INPUT_LENGTH=256
 MAX_OUTPUT_LENGTH=64
-GRADIENT_ACCUMULATION_STEPS=5
+GRADIENT_ACCUMULATION_STEPS=1
 VALIDATION_SPLIT=0.1
 USE_FP16="--use_fp16"
 USE_ADAFACTOR="--use_adafactor"
+MAX_TRAIN_SAMPLES=100
 
 python3 train.py \
   --model_name $MODEL_NAME \
@@ -26,5 +27,6 @@ python3 train.py \
   --max_output_length $MAX_OUTPUT_LENGTH \
   --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
   --validation_split $VALIDATION_SPLIT \
+  --max_train_samples $MAX_TRAIN_SAMPLES \
   $USE_FP16 \
   $USE_ADAFACTOR

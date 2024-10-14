@@ -5,6 +5,8 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from tqdm import tqdm
 import argparse
 import matplotlib.pyplot as plt
+from accelerate import Accelerator
+from tw_rouge import get_rouge
 
 
 # Define dataset class
@@ -48,6 +50,9 @@ class NewsSummaryDataset(Dataset):
 
 # Main function
 def main(args):
+    # Initialize Accelerator
+    accelerator = Accelerator()
+
     # Load pre-trained multilingual T5 model and tokenizer
     tokenizer = T5Tokenizer.from_pretrained(args.model_name)
     model = T5ForConditionalGeneration.from_pretrained(args.model_name)
@@ -75,22 +80,25 @@ def main(args):
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
         val_dataloader = None
 
-    # Set up training parameters
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
-    optimizer = (
-        Adafactor(
-            model.parameters(),
-            lr=args.learning_rate,
-            scale_parameter=False,
-            relative_step=False,
-        )
-        if args.use_adafactor
-        else torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    # Prepare model and optimizer
+    model, optimizer, train_dataloader = accelerator.prepare(
+        model,
+        (
+            Adafactor(
+                model.parameters(),
+                lr=args.learning_rate,
+                scale_parameter=False,
+                relative_step=False,
+            )
+            if args.use_adafactor
+            else torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+        ),
+        train_dataloader,
     )
 
-    # Mixed precision training
-    scaler = torch.amp.GradScaler("cuda") if args.use_fp16 else None
+    # Set up training parameters
+    device = accelerator.device
+    scaler = torch.amp.GradScaler() if args.use_fp16 else None
 
     # Tracking losses
     training_losses = []
@@ -139,11 +147,13 @@ def main(args):
         if val_dataloader is not None:
             model.eval()
             val_loss = 0
+            references = []
+            hypotheses = []
             with torch.no_grad():
                 for batch in val_dataloader:
                     input_ids = batch["input_ids"].to(device)
                     attention_mask = batch["attention_mask"].to(device)
-                    labels = batch["labels"].to(device).contiguous()
+                    labels = batch["labels"]
 
                     outputs = model(
                         input_ids=input_ids,
@@ -151,14 +161,31 @@ def main(args):
                         labels=labels,
                     )
                     val_loss += outputs.loss.item()
+
+                    generated_ids = model.generate(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_length=args.max_output_length,
+                    )
+                    decoded_preds = tokenizer.batch_decode(
+                        generated_ids, skip_special_tokens=True
+                    )
+                    decoded_labels = tokenizer.batch_decode(
+                        labels, skip_special_tokens=True
+                    )
+                    references.extend(decoded_labels)
+                    hypotheses.extend(decoded_preds)
+
             val_loss /= len(val_dataloader)
             validation_losses.append(val_loss)
             print(f"Validation Loss after epoch {epoch + 1}: {val_loss}")
+            rouge_scores = get_rouge(hypotheses, references)
+            print(f"ROUGE Scores after epoch {epoch + 1}: {rouge_scores}")
             model.train()
 
-    # Save the fine-tuned model
-    model.save_pretrained(args.save_path)
-    tokenizer.save_pretrained(args.save_path)
+        # Save the fine-tuned model after every epoch
+        model.save_pretrained(f"{args.save_path}_epoch_{epoch + 1}")
+        tokenizer.save_pretrained(f"{args.save_path}_epoch_{epoch + 1}")
 
     # Plot training and validation losses
     plt.figure(figsize=(10, 5))
@@ -242,6 +269,12 @@ if __name__ == "__main__":
         type=float,
         default=0.0,
         help="Fraction of data to use for validation (0 means no validation set)",
+    )
+    parser.add_argument(
+        "--max_train_samples",
+        type=int,
+        default=None,
+        help="Maximum number of training samples for testing",
     )
 
     args = parser.parse_args()
