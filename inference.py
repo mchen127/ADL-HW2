@@ -1,159 +1,192 @@
+# Evaluation loop on the evaluation dataset
 import json
-import argparse
+from tqdm import tqdm
+import os
 import torch
 from transformers import T5ForConditionalGeneration, T5Tokenizer
-from rouge_evaluation.tw_rouge.tw_rouge.twrouge import get_rouge
+from torch.utils.data import Dataset, DataLoader
+import argparse
+from accelerate import Accelerator
 
 
-def generate_summary(model, tokenizer, input_text, generation_config):
-    input_ids = tokenizer(
-        input_text,
-        return_tensors="pt",
-        truncation=True,
-        max_length=generation_config["max_input_length"],
-    ).input_ids.to(model.device)
+# Define dataset class
+class NewsSummaryDataset(Dataset):
+    def __init__(
+        self,
+        filepath,
+        tokenizer,
+        max_input_length=256,
+        max_output_length=64,
+        max_train=-1,
+    ):
+        self.data = []
+        with open(filepath, "r", encoding="utf-8") as f:
+            for idx, line in enumerate(f):
+                if max_train != -1 and idx >= max_train:
+                    break
+                self.data.append(json.loads(line))
+        self.tokenizer = tokenizer
+        self.max_input_length = max_input_length
+        self.max_output_length = max_output_length
 
-    # Generate summary
-    with torch.no_grad():
-        generated_ids = model.generate(
-            input_ids,
-            max_length=generation_config["max_output_length"],
-            num_beams=generation_config["num_beams"],
-            do_sample=generation_config["do_sample"],
-            top_k=generation_config["top_k"],
-            top_p=generation_config["top_p"],
-            temperature=generation_config["temperature"],
-            repetition_penalty=generation_config["repetition_penalty"],
-            length_penalty=generation_config["length_penalty"],
-            early_stopping=generation_config["early_stopping"],
-        )
+    def __len__(self):
+        return len(self.data)
 
-    generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-    return generated_text
-
-
-def evaluate_summary(hypotheses, references):
-    rouge_scores = get_rouge(hypotheses, references)
-    return rouge_scores
-
-
-def main(args):
-    # Load the model and tokenizer
-    tokenizer = T5Tokenizer.from_pretrained(args.model_name)
-    model = T5ForConditionalGeneration.from_pretrained(args.model_name).to(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
-
-    # Load input data
-    with open(args.input_file, "r", encoding="utf-8") as f:
-        data = [json.loads(line) for line in f]
-
-    # Generation configuration
-    generation_config = {
-        "max_input_length": args.max_input_length,
-        "max_output_length": args.max_output_length,
-        "num_beams": args.num_beams,
-        "do_sample": args.do_sample,
-        "top_k": args.top_k,
-        "top_p": args.top_p,
-        "temperature": args.temperature,
-        "repetition_penalty": args.repetition_penalty,
-        "length_penalty": args.length_penalty,
-        "early_stopping": args.early_stopping,
-    }
-
-    # Generate summaries and evaluate
-    hypotheses = []
-    references = []
-    for item in data:
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        id = item["id"]
         maintext = item["maintext"]
-        reference_title = item["title"]
-
-        generated_summary = generate_summary(
-            model, tokenizer, maintext, generation_config
+        title = item["title"]
+        inputs = self.tokenizer(
+            maintext,
+            max_length=self.max_input_length,
+            truncation=True,
+            padding="max_length",
+            return_tensors="pt",
         )
-        hypotheses.append(generated_summary)
-        references.append(reference_title)
+        labels = self.tokenizer(
+            title,
+            max_length=self.max_output_length,
+            truncation=True,
+            padding="max_length",
+            return_tensors="pt",
+        )
+        return {
+            "input_ids": inputs["input_ids"].squeeze(),
+            "attention_mask": inputs["attention_mask"].squeeze(),
+            "labels": labels["input_ids"].squeeze(),
+            "id": id,
+        }
 
-        print(f"Input: {maintext}")
-        print(f"Generated Summary: {generated_summary}")
-        print(f"Reference Title: {reference_title}")
-        print("\n")
 
-    # Evaluate using ROUGE
-    rouge_scores = evaluate_summary(hypotheses, references)
-    print("ROUGE Scores:", rouge_scores)
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Arguments for MT5 text summarization model"
+    )
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    # Add arguments
     parser.add_argument(
-        "--model_name",
-        type=str,
-        default="google/mt5-small",
-        help="Pre-trained model name or path",
+        "--model_name", type=str, default="google/mt5-small", help="Model name or path"
     )
     parser.add_argument(
-        "--input_file",
+        "--eval_dataset_path",
         type=str,
         required=True,
-        help="Path to the input data in JSONL format",
+        help="Path to the evaluation dataset",
+    )
+    parser.add_argument(
+        "--submission_path",
+        type=str,
+        required=True,
+        help="Path to save the submission file",
+    )
+    parser.add_argument(
+        "--model_path", type=str, required=True, help="Path to the fine-tuned model"
+    )
+    parser.add_argument(
+        "--tokenizer_path", type=str, required=True, help="Path to the tokenizer"
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=8, help="Batch size for inference"
     )
     parser.add_argument(
         "--max_input_length",
         type=int,
-        default=256,
-        help="Maximum input length for tokenization",
+        default=512,
+        help="Maximum input sequence length",
     )
     parser.add_argument(
         "--max_output_length",
         type=int,
-        default=64,
-        help="Maximum output length for generation",
-    )
-    parser.add_argument(
-        "--num_beams", type=int, default=4, help="Number of beams for beam search"
-    )
-    parser.add_argument(
-        "--do_sample",
-        action="store_true",
-        help="Whether to use sampling; use in conjunction with top_k or top_p",
-    )
-    parser.add_argument(
-        "--top_k",
-        type=int,
-        default=50,
-        help="The number of highest probability vocabulary tokens to keep for top-k sampling",
-    )
-    parser.add_argument(
-        "--top_p",
-        type=float,
-        default=0.95,
-        help="The cumulative probability of parameter highest probability vocabulary tokens to keep for nucleus sampling",
-    )
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=1.0,
-        help="The value used to module the next token probabilities",
-    )
-    parser.add_argument(
-        "--repetition_penalty",
-        type=float,
-        default=1.0,
-        help="The parameter for repetition penalty",
-    )
-    parser.add_argument(
-        "--length_penalty",
-        type=float,
-        default=1.0,
-        help="Exponential penalty to the length",
-    )
-    parser.add_argument(
-        "--early_stopping",
-        action="store_true",
-        help="Whether to stop the beam search when at least num_beams sentences are finished",
+        default=100,
+        help="Maximum output sequence length",
     )
 
+    # New arguments for alternate beam search and generation settings
+    parser.add_argument(
+        "--num_beams", type=int, default=1, help="Number of beams for beam search"
+    )
+    parser.add_argument(
+        "--early_stopping", action="store_true", help="Whether to stop decoding early"
+    )
+    parser.add_argument(
+        "--temperature", type=float, default=1.0, help="Sampling temperature"
+    )
+    parser.add_argument(
+        "--top_p", type=float, default=1.0, help="Nucleus sampling probability"
+    )
+    parser.add_argument("--top_k", type=int, default=50, help="Top-k sampling")
     args = parser.parse_args()
+    return args
+
+def main(args):
+    # Initialize Accelerator
+    accelerator = Accelerator()
+
+    # Prepare model and optimizer
+    # Load pre-trained multilingual T5 model and tokenizer
+    tokenizer = T5Tokenizer.from_pretrained(args.tokenizer_path)
+    model = T5ForConditionalGeneration.from_pretrained(args.model_name)
+
+    eval_dataset = NewsSummaryDataset(
+        filepath=args.eval_dataset_path,
+        tokenizer=tokenizer,
+        max_input_length=args.max_input_length,
+        max_output_length=args.max_output_length,
+    )
+
+    eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False)
+
+    model, eval_dataloader = accelerator.prepare(
+        model,
+        eval_dataloader,
+    )
+
+    device = accelerator.device
+    state_dict = torch.load(args.model_path, map_location=device)
+    model.load_state_dict(state_dict)
+    model.to(device)
+    model.eval()
+    
+    results = []
+    # Add progress bar for evaluation
+    with torch.no_grad():
+        progress_bar = tqdm(eval_dataloader, desc="Evaluating")
+        for batch in progress_bar:
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            ids = batch["id"]
+
+            # Generate predictions
+            generated_ids = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_length=args.max_output_length,
+                num_beams=args.num_beams,
+                early_stopping=True,
+                temperature=1.0,
+                top_p=0.95,
+                top_k=50,
+            )
+
+            # Decode predictions
+            decoded_preds = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+
+            # Format each prediction and add it to results
+            for i, title in enumerate(decoded_preds):
+                result = {"title": title, "id": ids[i]}
+                results.append(result)
+
+    # Write results to the submission file in the required format
+    with open(args.submission_path, "w", encoding="utf-8") as f:
+        for result in results:
+            json.dump(result, f, ensure_ascii=False)
+            f.write("\n")
+
+    print(f"Submission file saved to: {args.submission_path}")
+
+
+if __name__ == "__main__":
+    args = parse_args()
     main(args)
+    # print(args)  # You can remove this line; it's for debugging purposes
