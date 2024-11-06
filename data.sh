@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Create the data directory if it doesn't exist
+mkdir -p data
+
 # Check if gdown is installed
 if ! command -v gdown &> /dev/null
 then
