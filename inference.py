@@ -7,7 +7,7 @@ from transformers import (
     T5ForConditionalGeneration,
     T5Tokenizer,
     MT5ForConditionalGeneration,
-    MT5Tokenizer
+    MT5Tokenizer,
 )
 from torch.utils.data import Dataset, DataLoader
 import argparse
@@ -71,7 +71,10 @@ def parse_args():
 
     # Add arguments
     parser.add_argument(
-        "--model_path", type=str, default="./google_mt5_small", help="Model name or path"
+        "--model_path",
+        type=str,
+        default="./google_mt5_small",
+        help="Model name or path",
     )
     parser.add_argument(
         "--eval_dataset_path",
@@ -86,7 +89,10 @@ def parse_args():
         help="Path to save the submission file",
     )
     parser.add_argument(
-        "--fine_tuned_checkpoint_path", type=str, required=True, help="Path to the fine-tuned model"
+        "--fine_tuned_checkpoint_path",
+        type=str,
+        required=True,
+        help="Path to the fine-tuned model",
     )
     parser.add_argument(
         "--tokenizer_path", type=str, required=True, help="Path to the tokenizer"
@@ -109,7 +115,7 @@ def parse_args():
 
     # New arguments for alternate beam search and generation settings
     parser.add_argument(
-        "--num_beams", type=int, default=1, help="Number of beams for beam search"
+        "--num_beams", type=int, default=20, help="Number of beams for beam search"
     )
     parser.add_argument(
         "--early_stopping", action="store_true", help="Whether to stop decoding early"
@@ -118,11 +124,12 @@ def parse_args():
         "--temperature", type=float, default=1.0, help="Sampling temperature"
     )
     parser.add_argument(
-        "--top_p", type=float, default=1.0, help="Nucleus sampling probability"
+        "--top_p", type=float, default=0.95, help="Nucleus sampling probability"
     )
     parser.add_argument("--top_k", type=int, default=50, help="Top-k sampling")
     args = parser.parse_args()
     return args
+
 
 def main(args):
     # Initialize Accelerator
@@ -144,7 +151,9 @@ def main(args):
         max_output_length=args.max_output_length,
     )
 
-    eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False)
+    eval_dataloader = DataLoader(
+        eval_dataset, batch_size=args.batch_size, shuffle=False
+    )
 
     model, eval_dataloader = accelerator.prepare(
         model,
@@ -173,13 +182,15 @@ def main(args):
                 max_length=args.max_output_length,
                 num_beams=args.num_beams,
                 early_stopping=True,
-                temperature=1.0,
-                top_p=0.95,
-                top_k=50,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                top_k=args.top_k,
             )
 
             # Decode predictions
-            decoded_preds = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+            decoded_preds = tokenizer.batch_decode(
+                generated_ids, skip_special_tokens=True
+            )
 
             # Format each prediction and add it to results
             for i, title in enumerate(decoded_preds):
