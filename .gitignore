@@ -1,2 +1,5 @@
 *.jsonl
 data
+google_mt5_small
+fine_tuned_mt5_v3_epoch_6
+fine_tuned_mt5_v3_epoch_6.pth

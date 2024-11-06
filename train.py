@@ -8,9 +8,9 @@ import argparse
 import matplotlib.pyplot as plt
 from accelerate import Accelerator
 from argparse import Namespace
-import sys
-sys.path.append(file_path_prefix)
-from evaluation.tw_rouge.tw_rouge.twrouge import get_rouge
+# import sys
+# sys.path.append(file_path_prefix)
+from rouge_evaluation.tw_rouge.tw_rouge.twrouge import get_rouge
 
 
 # Define dataset class
@@ -72,12 +72,6 @@ def parse_args():
     )
     parser.add_argument(
         "--train_data_path", type=str, required=True, help="Path to the training data"
-    )
-    parser.add_argument(
-        "--model_save_path", type=str, default="model", help="Path to save the model"
-    )
-    parser.add_argument(
-        "--tokenizer_save_path", type=str, default="tokenizer", help="Path to save the model"
     )
     parser.add_argument(
         "--batch_size", type=int, default=24, help="Batch size for training"
@@ -282,11 +276,73 @@ def main(args):
                 state_dict[name] = tensor.contiguous()
         torch.save(
             state_dict,
-            f"{args.model_save_path}/fine-tuned-mt5-small-epoch-{epoch+1}.pth",
+            f"./model/fine-tuned-mt5-small-epoch-{epoch+1}.pth",
         )
         tokenizer.save_pretrained(
-            f"{args.tokenizer_save_path}/fine-tuned-mt5-small-epoch-{epoch+1}",
+            f"./tokenizer/fine-tuned-mt5-small-epoch-{epoch+1}",
         )
+
+    # Training Loss per Batch
+    plt.figure(figsize=(10, 6))
+    plt.plot(
+        range(1, len(training_losses_per_batch) + 1),
+        training_losses_per_batch,
+        label="Training Loss",
+        color="b",
+    )
+    plt.xlabel("Batches")
+    plt.ylabel("Training Loss")
+    plt.title("Training Loss per Batch")
+    plt.legend()
+    plt.savefig(f"./results/training_loss_per_batch.png")
+    plt.show()
+
+    # Validation Loss per Epoch
+    plt.figure(figsize=(10, 6))
+    epochs = range(1, len(validation_losses_per_epoch) + 1)
+    plt.plot(epochs, validation_losses_per_epoch, label="Validation Loss", color="r")
+    plt.scatter(epochs, validation_losses_per_epoch, color="r", s=15)  # Show data points
+
+    # Annotate each point with its actual value
+    for x, y in zip(epochs, validation_losses_per_epoch):
+        plt.text(x, y + 0.02, f"{y:.3f}", fontsize=9, ha="center", va="bottom")
+
+    plt.xlabel("Epochs")
+    plt.ylabel("Validation Loss")
+    plt.title("Validation Loss per Epoch")
+    plt.legend()
+    plt.savefig(f"./results/validation_loss_per_epoch.png")
+    plt.show()
+
+    # ROUGE Scores per Epoch
+    rouge_1_f1 = [score["rouge-1"]["f"] for score in rouge_scores_per_epoch]
+    rouge_2_f1 = [score["rouge-2"]["f"] for score in rouge_scores_per_epoch]
+    rouge_l_f1 = [score["rouge-l"]["f"] for score in rouge_scores_per_epoch]
+
+    epochs = range(1, len(rouge_1_f1) + 1)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, rouge_1_f1, label="ROUGE-1 F1", color="g")
+    plt.scatter(epochs, rouge_1_f1, color="g", s=15)  # Show data points for ROUGE-1
+    for x, y in zip(epochs, rouge_1_f1):
+        plt.text(x, y + 0.003, f"{y:.3f}", fontsize=9, ha="center", va="bottom")
+
+    plt.plot(epochs, rouge_2_f1, label="ROUGE-2 F1", color="c")
+    plt.scatter(epochs, rouge_2_f1, color="c", s=15)  # Show data points for ROUGE-2
+    for x, y in zip(epochs, rouge_2_f1):
+        plt.text(x, y + 0.003, f"{y:.3f}", fontsize=9, ha="center", va="bottom")
+
+    plt.plot(epochs, rouge_l_f1, label="ROUGE-L F1", color="m")
+    plt.scatter(epochs, rouge_l_f1, color="m", s=15)  # Show data points for ROUGE-L
+    for x, y in zip(epochs, rouge_l_f1):
+        plt.text(x, y + 0.003, f"{y:.3f}", fontsize=9, ha="center", va="bottom")
+
+    plt.xlabel("Epochs")
+    plt.ylabel("ROUGE Score (F1)")
+    plt.title("ROUGE Scores per Epoch")
+    plt.legend()
+    plt.savefig(f"./results/rouge_scores_per_epoch.png")
+    plt.show()
 
 if __name__ == "__main__":
     args = parse_args()

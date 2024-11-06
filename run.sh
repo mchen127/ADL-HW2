@@ -14,8 +14,8 @@ OUTPUT_PATH=$2
 python inference.py \
     --eval_dataset_path "$INPUT_PATH" \
     --submission_path "$OUTPUT_PATH" \
-    --model_name "google/mt5-small" \
-    --model_path "./fine_tuned_mt5_v3_epoch_6.pth" \
+    --model_path "./google_mt5_small" \
+    --fine_tuned_checkpoint_path "./fine_tuned_mt5_v3_epoch_6.pth" \
     --tokenizer_path "./fine_tuned_mt5_v3_epoch_6" \
     --batch_size 8 \
     --max_input_length 512 \

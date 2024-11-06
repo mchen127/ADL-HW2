@@ -3,7 +3,12 @@ import json
 from tqdm import tqdm
 import os
 import torch
-from transformers import T5ForConditionalGeneration, T5Tokenizer
+from transformers import (
+    T5ForConditionalGeneration,
+    T5Tokenizer,
+    MT5ForConditionalGeneration,
+    MT5Tokenizer
+)
 from torch.utils.data import Dataset, DataLoader
 import argparse
 from accelerate import Accelerator
@@ -36,7 +41,7 @@ class NewsSummaryDataset(Dataset):
         item = self.data[idx]
         id = item["id"]
         maintext = item["maintext"]
-        title = item["title"]
+        # title = item["title"]
         inputs = self.tokenizer(
             maintext,
             max_length=self.max_input_length,
@@ -44,17 +49,17 @@ class NewsSummaryDataset(Dataset):
             padding="max_length",
             return_tensors="pt",
         )
-        labels = self.tokenizer(
-            title,
-            max_length=self.max_output_length,
-            truncation=True,
-            padding="max_length",
-            return_tensors="pt",
-        )
+        # labels = self.tokenizer(
+        #     title,
+        #     max_length=self.max_output_length,
+        #     truncation=True,
+        #     padding="max_length",
+        #     return_tensors="pt",
+        # )
         return {
             "input_ids": inputs["input_ids"].squeeze(),
             "attention_mask": inputs["attention_mask"].squeeze(),
-            "labels": labels["input_ids"].squeeze(),
+            # "labels": labels["input_ids"].squeeze(),
             "id": id,
         }
 
@@ -66,7 +71,7 @@ def parse_args():
 
     # Add arguments
     parser.add_argument(
-        "--model_name", type=str, default="google/mt5-small", help="Model name or path"
+        "--model_path", type=str, default="./google_mt5_small", help="Model name or path"
     )
     parser.add_argument(
         "--eval_dataset_path",
@@ -81,7 +86,7 @@ def parse_args():
         help="Path to save the submission file",
     )
     parser.add_argument(
-        "--model_path", type=str, required=True, help="Path to the fine-tuned model"
+        "--fine_tuned_checkpoint_path", type=str, required=True, help="Path to the fine-tuned model"
     )
     parser.add_argument(
         "--tokenizer_path", type=str, required=True, help="Path to the tokenizer"
@@ -125,8 +130,13 @@ def main(args):
 
     # Prepare model and optimizer
     # Load pre-trained multilingual T5 model and tokenizer
-    tokenizer = T5Tokenizer.from_pretrained(args.tokenizer_path)
-    model = T5ForConditionalGeneration.from_pretrained(args.model_name)
+    tokenizer = MT5Tokenizer.from_pretrained(args.tokenizer_path)
+    # Initialize the model with the base architecture
+    model = MT5ForConditionalGeneration.from_pretrained(args.model_name)
+
+    # Load the fine-tuned weights
+    model.load_state_dict(torch.load(args.model_path))
+
 
     eval_dataset = NewsSummaryDataset(
         filepath=args.eval_dataset_path,
@@ -143,8 +153,8 @@ def main(args):
     )
 
     device = accelerator.device
-    state_dict = torch.load(args.model_path, map_location=device)
-    model.load_state_dict(state_dict)
+    # state_dict = torch.load(args.model_path, map_location=device)
+    # model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
     
