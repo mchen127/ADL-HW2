@@ -132,11 +132,10 @@ def main(args):
     # Load pre-trained multilingual T5 model and tokenizer
     tokenizer = MT5Tokenizer.from_pretrained(args.tokenizer_path)
     # Initialize the model with the base architecture
-    model = MT5ForConditionalGeneration.from_pretrained(args.model_name)
+    model = MT5ForConditionalGeneration.from_pretrained(args.model_path)
 
     # Load the fine-tuned weights
-    model.load_state_dict(torch.load(args.model_path))
-
+    model.load_state_dict(torch.load(args.fine_tuned_checkpoint_path))
 
     eval_dataset = NewsSummaryDataset(
         filepath=args.eval_dataset_path,
@@ -157,7 +156,7 @@ def main(args):
     # model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
-    
+
     results = []
     # Add progress bar for evaluation
     with torch.no_grad():
