@@ -12,7 +12,7 @@ from transformers import (
 from torch.utils.data import Dataset, DataLoader
 import argparse
 from accelerate import Accelerator
-
+from rouge_evaluation.tw_rouge.tw_rouge.twrouge import get_rouge
 
 # Define dataset class
 class NewsSummaryDataset(Dataset):
@@ -77,6 +77,15 @@ def parse_args():
         help="Model name or path",
     )
     parser.add_argument(
+        "--fine_tuned_checkpoint_path",
+        type=str,
+        required=True,
+        help="Path to the fine-tuned model",
+    )
+    parser.add_argument(
+        "--tokenizer_path", type=str, required=True, help="Path to the tokenizer"
+    )
+    parser.add_argument(
         "--eval_dataset_path",
         type=str,
         required=True,
@@ -87,15 +96,6 @@ def parse_args():
         type=str,
         required=True,
         help="Path to save the submission file",
-    )
-    parser.add_argument(
-        "--fine_tuned_checkpoint_path",
-        type=str,
-        required=True,
-        help="Path to the fine-tuned model",
-    )
-    parser.add_argument(
-        "--tokenizer_path", type=str, required=True, help="Path to the tokenizer"
     )
     parser.add_argument(
         "--batch_size", type=int, default=8, help="Batch size for inference"
@@ -142,7 +142,9 @@ def main(args):
     model = MT5ForConditionalGeneration.from_pretrained(args.model_path)
 
     # Load the fine-tuned weights
-    model.load_state_dict(torch.load(args.fine_tuned_checkpoint_path))
+    model.load_state_dict(
+        torch.load(args.fine_tuned_checkpoint_path, map_location=device)
+    )
 
     eval_dataset = NewsSummaryDataset(
         filepath=args.eval_dataset_path,
@@ -161,8 +163,7 @@ def main(args):
     )
 
     device = accelerator.device
-    # state_dict = torch.load(args.model_path, map_location=device)
-    # model.load_state_dict(state_dict)
+
     model.to(device)
     model.eval()
 
@@ -196,6 +197,11 @@ def main(args):
             for i, title in enumerate(decoded_preds):
                 result = {"title": title, "id": ids[i]}
                 results.append(result)
+
+    # Ensure the submission path directory exists
+    submission_dir = os.path.dirname(args.submission_path)
+    if submission_dir and not os.path.exists(submission_dir):
+        os.makedirs(submission_dir)
 
     # Write results to the submission file in the required format
     with open(args.submission_path, "w", encoding="utf-8") as f:
