@@ -134,6 +134,7 @@ def parse_args():
 def main(args):
     # Initialize Accelerator
     accelerator = Accelerator()
+    device = accelerator.device
 
     # Prepare model and optimizer
     # Load pre-trained multilingual T5 model and tokenizer
@@ -162,7 +163,6 @@ def main(args):
         eval_dataloader,
     )
 
-    device = accelerator.device
 
     model.to(device)
     model.eval()
